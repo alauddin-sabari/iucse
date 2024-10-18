@@ -1,213 +1,378 @@
-To add a **user interface (UI)** that allows users to input a location (city name or coordinates) and fetch the weather forecast for that area, we'll make some changes to the Django project. We'll build a form where users can input the city name, convert that into latitude and longitude using OpenWeatherMap's **Geocoding API**, and then fetch the weather data.
+To create a Docker container that contains the necessary libraries and maps with Docker volumes, allowing changes to show up live in your web browser, follow these steps:
 
-### Changes to Implement:
-1. **Create a Form for User Input**
-2. **Use Geocoding API to Convert City to Coordinates**
-3. **Fetch and Display Weather Data Based on User Input**
-4. **Display Plotly Chart in the Template**
+### Step-by-Step Guide
 
----
+#### 1. Create Your Django Project
 
-### Step 1: **Create a Form for User Input**
+First, create your Django project if you haven't already:
 
-We need a form where the user can input a city name, and then we can use this city name to get the coordinates (latitude and longitude) required for the weather data.
-
-#### 1. Create a Form in Django
-
-In `weather/forms.py`, create a form to take user input for the city name.
-
-```python
-# weather/forms.py
-from django import forms
-
-class LocationForm(forms.Form):
-    city_name = forms.CharField(label='City Name', max_length=100, widget=forms.TextInput(attrs={
-        'class': 'form-control',
-        'placeholder': 'Enter city name'
-    }))
+```bash
+django-admin startproject weatherapp
+cd weatherapp
+django-admin startapp weather
 ```
 
-- **`forms.CharField`**: This is a text input where the user enters the name of the city.
-- **`widget=forms.TextInput`**: Adds a bit of styling using Bootstrap classes for better UI.
+#### 2. Create a `Dockerfile`
 
-#### 2. Update `weather/views.py` to Handle User Input
+In the root of your project directory (`weatherapp`), create a `Dockerfile`:
 
-We need to modify the view to render the form and handle the data submitted by the user.
+```dockerfile
+# Dockerfile
+FROM python:3.x
+
+# Set environment variable to ensure Python output is not buffered
+ENV PYTHONUNBUFFERED 1
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy requirements file into the container
+COPY requirements.txt /app/
+
+# Install the dependencies
+RUN pip install -r requirements.txt
+
+# Copy the rest of the application into the container
+COPY . /app/
+```
+
+#### 3. Create a `requirements.txt` File
+
+Ensure you have a `requirements.txt` file with Django and any other dependencies listed:
+
+```
+Django>=3.0,<4.0
+psycopg2-binary
+requests
+```
+
+#### 4. Create a `docker-compose.yml` File
+
+In the root of your project directory (`weatherapp`), create a `docker-compose.yml` file:
+
+```yaml
+version: '3.7'
+
+services:
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_DB: weatherapp
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+
+volumes:
+  postgres_data:
+```
+
+#### 5. Update `settings.py` for PostgreSQL
+
+In your Django project's `settings.py` file, update the database settings to use PostgreSQL:
 
 ```python
-# weather/views.py
-import requests
-from django.shortcuts import render
-from .forms import LocationForm
-import plotly.graph_objs as go
-from plotly.subplots import make_subplots
-from datetime import datetime
-
-# Define your OpenWeatherMap API key
-API_KEY = 'your_openweathermap_api_key'
-
-def get_coordinates(city_name):
-    """Use OpenWeatherMap's Geocoding API to get the coordinates of a city"""
-    geocode_url = 'http://api.openweathermap.org/geo/1.0/direct'
-    params = {
-        'q': city_name,
-        'limit': 1,  # We only want the top result
-        'appid': API_KEY
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'weatherapp',
+        'USER': 'user',
+        'PASSWORD': 'password',
+        'HOST': 'db',
+        'PORT': 5432,
     }
-    response = requests.get(geocode_url, params=params)
-    data = response.json()
-    
-    if data:
-        lat = data[0]['lat']
-        lon = data[0]['lon']
-        return lat, lon
-    return None, None
-
-def weather_chart(request):
-    form = LocationForm()
-    graph_html = None
-
-    if request.method == 'POST':
-        form = LocationForm(request.POST)
-        if form.is_valid():
-            city_name = form.cleaned_data['city_name']
-            lat, lon = get_coordinates(city_name)
-            
-            if lat and lon:
-                # Fetch weather data for the given coordinates
-                weather_url = 'https://api.openweathermap.org/data/2.5/onecall'
-                params = {
-                    'lat': lat,
-                    'lon': lon,
-                    'exclude': 'current,minutely,hourly',
-                    'appid': API_KEY,
-                    'units': 'metric'
-                }
-                response = requests.get(weather_url, params=params)
-                weather_data = response.json()
-                
-                # Process the weather data
-                dates = []
-                temperatures = []
-                humidity = []
-                
-                for day in weather_data['daily']:
-                    date = datetime.utcfromtimestamp(day['dt']).strftime('%Y-%m-%d')
-                    dates.append(date)
-                    temperatures.append(day['temp']['day'])
-                    humidity.append(day['humidity'])
-                
-                # Create Plotly chart
-                fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                                    subplot_titles=("Temperature Over a Week", "Humidity Over a Week"))
-                
-                # Line chart for temperature
-                temp_trace = go.Scatter(x=dates, y=temperatures, mode='lines+markers', name='Temperature (°C)')
-                fig.add_trace(temp_trace, row=1, col=1)
-                
-                # Line chart for humidity
-                hum_trace = go.Scatter(x=dates, y=humidity, mode='lines+markers', name='Humidity (%)')
-                fig.add_trace(hum_trace, row=2, col=1)
-                
-                fig.update_layout(title_text=f"7-Day Weather Forecast for {city_name}", height=600, width=800)
-                
-                # Convert the plot to HTML
-                graph_html = fig.to_html(full_html=False)
-    
-    return render(request, 'weather/weather_chart.html', {'form': form, 'graph_html': graph_html})
+}
 ```
 
-#### Explanation of Changes:
+#### 6. Build and Run the Docker Containers
 
-1. **LocationForm**: The form is rendered and processed based on user input.
-2. **get_coordinates()**: A helper function that uses OpenWeatherMap's **Geocoding API** to convert the user’s city input into latitude and longitude.
-3. **weather_chart()**: Now accepts user input for the city, gets the coordinates, and then fetches the weather data based on those coordinates.
+Build the Docker containers with the following command:
+
+```bash
+docker-compose build
+```
+
+Run the containers in detached mode:
+
+```bash
+docker-compose up -d
+```
+
+Push the image into DockerHub
+```bash
+ docker tag  department-web:latest alauddin23/django-docker-ict:latest
+ docker push   alauddin23/django-docker-ict:latest
+ ```
+
+#### 7. Apply Migrations
+
+Run the migrations to set up your database schema:
+
+```bash
+docker-compose exec web python manage.py migrate
+```
+
+### Verifying Live Reload
+
+With the `volumes` configuration in your `docker-compose.yml`, changes made to your Django application on your local machine will be reflected in the running container. You can verify this by:
+
+1. Making a change to a Django file (e.g., `views.py`, `templates/index.html`).
+2. Saving the file.
+3. Refreshing your browser to see the changes live.
+
+### Example Project Structure
+
+```
+weatherapp/
+├── Dockerfile
+├── docker-compose.yml
+├── manage.py
+├── requirements.txt
+├── weatherapp/
+│   ├── __init__.py
+│   ├── settings.py
+│   ├── urls.py
+│   ├── wsgi.py
+├── weather/
+│   ├── __init__.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── migrations/
+│   ├── models.py
+│   ├── tests.py
+│   ├── views.py
+│   ├── templates/
+│   │   └── weather/
+│   │       └── index.html
+```
+
+### Summary
+
+By following these steps, you've set up a Django project in a Docker container with live reloading. Changes made to your application code will automatically reflect in your browser without needing to rebuild the Docker image, making development more efficient.
+
+
+
+Creating a weather app using Django within a Docker environment involves several steps. Below is an outline for a presentation that details each step in the process:
 
 ---
 
-### Step 2: **Create a Template for the User Interface**
+### Slide 1: Title Slide
+**Title: Building a Weather App Using Django in a Docker Environment**
+- **Subtitle: Step-by-Step Guide**
+- **Presented by: [Your Name]**
 
-Now we need a template to display the form and the weather forecast results.
+---
 
-Create the `weather_chart.html` template in the `templates/weather/` directory.
+### Slide 2: Introduction
+- **What is Django?**
+  - High-level Python web framework
+  - Encourages rapid development
+  - Clean, pragmatic design
+- **What is Docker?**
+  - Platform to develop, ship, and run applications inside containers
+  - Ensures consistent environments
+- **Objective:**
+  - Develop a weather app using Django
+  - Deploy it in a Docker container
+
+---
+
+### Slide 3: Setting Up the Project
+- **1. Install Docker:**
+  - Download and install Docker from [docker.com](https://www.docker.com/)
+- **2. Create a Django Project:**
+  - `django-admin startproject weatherapp`
+- **3. Create a Django App:**
+  - Navigate into the project directory: `cd weatherapp`
+  - Create an app: `python manage.py startapp weather`
+
+---
+
+### Slide 4: Docker Configuration
+- **1. Create a `Dockerfile`:**
+  - Base image: `python:3.x`
+  - Set working directory
+  - Install dependencies
+  - Copy project files
+  - Run commands to set up the app
+
+```dockerfile
+# Dockerfile
+FROM python:3.x
+
+ENV PYTHONUNBUFFERED 1
+
+WORKDIR /app
+
+COPY requirements.txt /app/
+RUN pip install -r requirements.txt
+
+COPY . /app/
+
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+```
+
+---
+
+### Slide 5: Docker Configuration (Continued)
+- **2. Create a `docker-compose.yml` File:**
+  - Define services
+  - Set up volumes and ports
+
+```yaml
+version: '3.7'
+
+services:
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_DB: weatherapp
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+
+volumes:
+  postgres_data:
+```
+
+---
+
+### Slide 6: Setting Up Django with PostgreSQL
+- **1. Install PostgreSQL and psycopg2-binary:**
+  - Update `requirements.txt`:
+    ```
+    Django>=3.0,<4.0
+    psycopg2-binary
+    ```
+- **2. Update `settings.py`:**
+  - Configure the database settings
+
+```python
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'weatherapp',
+        'USER': 'user',
+        'PASSWORD': 'password',
+        'HOST': 'db',
+        'PORT': 5432,
+    }
+}
+```
+
+---
+
+### Slide 7: Building and Running Containers
+- **1. Build Docker Containers:**
+  - `docker-compose build`
+- **2. Run Docker Containers:**
+  - `docker-compose up`
+- **3. Apply Migrations:**
+  - In a new terminal: `docker-compose exec web python manage.py migrate`
+
+---
+
+### Slide 8: Implementing the Weather App
+- **1. Set Up API Integration:**
+  - Choose a weather API (e.g., OpenWeatherMap)
+  - Install requests: `pip install requests`
+  - Create a function to fetch weather data
+
+```python
+import requests
+
+def get_weather(city):
+    api_key = 'your_api_key'
+    url = f'http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}'
+    response = requests.get(url)
+    return response.json()
+```
+
+---
+
+### Slide 9: Creating Views and Templates
+- **1. Create a View:**
+  - Fetch weather data
+  - Render it in a template
+
+```python
+from django.shortcuts import render
+from .utils import get_weather
+
+def index(request):
+    if 'city' in request.GET:
+        city = request.GET['city']
+        data = get_weather(city)
+    else:
+        data = {}
+    return render(request, 'weather/index.html', {'data': data})
+```
+
+- **2. Create a Template:**
+  - Display weather data in `templates/weather/index.html`
 
 ```html
-<!-- templates/weather/weather_chart.html -->
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Weather Forecast</title>
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+    <title>Weather App</title>
 </head>
 <body>
-    <div class="container">
-        <h1 class="mt-4">Get 7-Day Weather Forecast</h1>
-        
-        <form method="POST">
-            {% csrf_token %}
-            <div class="form-group">
-                {{ form.city_name.label_tag }}
-                {{ form.city_name }}
-            </div>
-            <button type="submit" class="btn btn-primary">Get Forecast</button>
-        </form>
-        
-        {% if graph_html %}
-        <h3 class="mt-5">Weather Forecast</h3>
-        <div>
-            {{ graph_html|safe }}
-        </div>
-        {% endif %}
-    </div>
+    <form method="get">
+        <input type="text" name="city" placeholder="Enter city">
+        <button type="submit">Get Weather</button>
+    </form>
+    {% if data %}
+        <p>City: {{ data.name }}</p>
+        <p>Temperature: {{ data.main.temp }}°K</p>
+        <p>Weather: {{ data.weather.0.description }}</p>
+    {% endif %}
 </body>
 </html>
 ```
 
-### Explanation:
+---
 
-- **`{% csrf_token %}`**: A security token to prevent CSRF attacks in Django forms.
-- **`{{ form.city_name }}`**: Renders the form field for city name input.
-- **`{{ graph_html|safe }}`**: Safely renders the Plotly graph HTML if it’s available after the form submission.
+### Slide 10: Conclusion
+- **Recap:**
+  - Setup Django project
+  - Configured Docker environment
+  - Integrated weather API
+  - Deployed the app in Docker containers
+- **Next Steps:**
+  - Improve UI/UX
+  - Add more features (e.g., weather forecast, user authentication)
+  - Deploy to production (e.g., AWS, Heroku)
 
 ---
 
-### Step 3: **Update URL Configuration**
-
-In `weather/urls.py`, make sure the routing points to the weather view.
-
-```python
-# weather/urls.py
-from django.urls import path
-from .views import weather_chart
-
-urlpatterns = [
-    path('weather/', weather_chart, name='weather_chart'),
-]
-```
+### Slide 11: Q&A
+- **Questions:**
+  - Open the floor for questions
+- **Contact Information:**
+  - [Your Name]
+  - [Your Email]
+  - [Your LinkedIn/Twitter]
 
 ---
 
-### Step 4: **Run and Test**
-
-1. Run the Django development server:
-
-```bash
-python manage.py runserver
-```
-
-2. Open `http://127.0.0.1:8000/weather/` in your browser.
-
-You should now see a form where you can enter a city name. After submitting the form, it will display a 7-day weather forecast for that city using Plotly graphs for temperature and humidity.
-
----
-
-### Final Summary:
-
-1. We added a **form** for user input to get the city name.
-2. We used **OpenWeatherMap's Geocoding API** to convert the city name into latitude and longitude.
-3. The **weather forecast** was fetched using the latitude and longitude and displayed using **Plotly**.
-4. Users can now enter any city to see its 7-day weather forecast. 
-
- 
+This outline provides a comprehensive guide for creating and presenting a weather app using Django in a Docker environment.
