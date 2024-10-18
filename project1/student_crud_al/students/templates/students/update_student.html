@@ -1,0 +1,15 @@
+<h2>Update Student</h2>
+<form method="POST">
+    {% csrf_token %}
+    <label for="name">Name:</label><br>
+    <input type="text" name="name" value="{{ student.name }}"><br><br>
+
+    <label for="roll">Roll:</label><br>
+    <input type="number" name="roll" value="{{ student.roll }}"><br><br>
+
+    <label for="email">Email:</label><br>
+    <input type="email" name="email" value="{{ student.email }}"><br><br>
+
+    <button type="submit">Update</button>
+</form>
+<a href="{% url 'list_students' %}">Back to List</a>
