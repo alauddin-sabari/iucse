@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% block title %}Upload Image{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<section class="text-center my-5">
+    <h1 class="display-4 fw-bold">Upload an Image</h1>
+    <p class="lead mb-5">Let our AI classify your image with high accuracy in just a few seconds.</p>
+</section>
+
+<!-- Form Section -->
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card p-4">
+                <div class="card-body">
+                    <h3 class="text-center mb-4">Select an Image to Upload</h3>
+                    <form method="POST" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="mb-4">
+                            {{ form.image.label_tag }}
+                            {{ form.image }}
+                        </div>
+                        <div class="text-center">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="fas fa-upload"></i> Upload Image
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

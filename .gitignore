@@ -1,0 +1,18 @@
+envdjango/
+# Ignore Python bytecode
+__pycache__/
+*.py[cod]
+
+# Ignore environment folders
+env/
+envdjango/
+*.env
+
+# Ignore compiled files
+*.pyc
+
+# Ignore other potential folders and files like logs or static files
+*.log
+# git rm -r --cached project4/plotly_bar_chart/plotly_bar_chart/__pycache__/
+# git rm -r --cached *.pyc
+# git rm -r --cached env/
